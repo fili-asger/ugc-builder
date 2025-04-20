@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { hostname } from "os";
 
 const nextConfig: NextConfig = {
   images: {
@@ -15,6 +16,10 @@ const nextConfig: NextConfig = {
         hostname: "oaidalleapiprodscus.blob.core.windows.net", // Common hostname for DALL-E images
         port: "",
         pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "7e4ydbotp2tcw8v2.public.blob.vercel-storage.com", // Add Vercel Blob hostname
       },
     ],
   },

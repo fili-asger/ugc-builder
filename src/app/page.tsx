@@ -58,6 +58,7 @@ interface BriefData {
   // };
   // products: Product[]; // Removed products (now handled in prompt, not returned)
   scenes: Scene[];
+  id?: string; // Optional ID
 }
 // --- END UPDATED INTERFACE ---
 
@@ -100,11 +101,9 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({
-            error: "Failed to parse error response from server.",
-          }));
+        const errorData = await response.json().catch(() => ({
+          error: "Failed to parse error response from server.",
+        }));
         throw new Error(
           errorData.error || `HTTP error! status: ${response.status}`
         );
@@ -116,9 +115,20 @@ export default function Home() {
       console.log("Received text brief data:", data);
       // setBriefData(data); // Don't set state here
 
-      // --- Navigate to brief page with data ---
-      const briefQueryParam = encodeURIComponent(JSON.stringify(data));
-      router.push(`/brief?data=${briefQueryParam}`);
+      // --- Navigate to brief page with ID ---
+      if (data.id) {
+        // Check if the ID exists in the response
+        router.push(`/brief?id=${data.id}`);
+      } else {
+        // Handle cases where ID might be missing (e.g., DB save failed silently)
+        // Option 1: Show error to user
+        console.error("Frontend Error: Brief ID not found in response.");
+        setError("Failed to get brief ID after generation. Cannot navigate.");
+        setIsLoading(false); // Stop loading indicator
+        // Option 2: Fallback to old method (if desired, but less ideal)
+        // const briefQueryParam = encodeURIComponent(JSON.stringify(data));
+        // router.push(`/brief?data=${briefQueryParam}`);
+      }
       // --- End Navigation ---
     } catch (err) {
       console.error("Frontend Error:", err);
@@ -153,7 +163,7 @@ export default function Home() {
             disabled={isLoading}
             className="shrink-0"
           >
-            {isLoading ? "Generating..." : "Generate Brief"}
+            {isLoading ? "Generating..." : "Generate Script"}
           </Button>
         </div>
         {/* Show error only when input is visible */}

@@ -170,31 +170,44 @@ function BriefDisplay() {
   >({});
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    const dataParam = searchParams.get("data");
-    if (dataParam) {
-      try {
-        const decodedData = decodeURIComponent(dataParam);
-        const parsedData: BriefData = JSON.parse(decodedData);
-        // Basic validation
-        if (
-          !parsedData.title ||
-          !parsedData.scenes ||
-          parsedData.scenes.length !== 5
-        ) {
-          throw new Error("Invalid brief data received.");
+    const fetchBriefData = async () => {
+      setLoading(true);
+      setError(null);
+      setBriefData(null); // Clear previous data
+
+      const briefId = searchParams.get("id");
+
+      if (briefId) {
+        try {
+          const response = await fetch(`/api/get-brief/${briefId}`);
+          if (!response.ok) {
+            const errorData = await response
+              .json()
+              .catch(() => ({ error: "Failed to parse error response" }));
+            throw new Error(
+              errorData.error || `Failed to fetch brief: ${response.status}`
+            );
+          }
+          const parsedData: BriefData = await response.json();
+
+          // Basic validation (can be enhanced)
+          if (!parsedData.title || !parsedData.scenes) {
+            throw new Error("Invalid brief data received from API.");
+          }
+          setBriefData(parsedData);
+        } catch (e) {
+          console.error("Failed to fetch or parse brief data:", e);
+          setError(
+            e instanceof Error ? e.message : "Failed to load brief data."
+          );
         }
-        setBriefData(parsedData);
-        // In a real app, you might fetch actorData based on briefData or another param here
-      } catch (e) {
-        console.error("Failed to parse brief data:", e);
-        setError("Failed to load brief data. Invalid format.");
+      } else {
+        setError("No brief ID found in URL.");
       }
-    } else {
-      setError("No brief data found in URL.");
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+
+    fetchBriefData();
   }, [searchParams]);
 
   // --- Function to handle individual image generation ---
@@ -218,11 +231,9 @@ function BriefDisplay() {
       });
 
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({
-            error: "Failed to parse error from image generation server.",
-          }));
+        const errorData = await response.json().catch(() => ({
+          error: "Failed to parse error from image generation server.",
+        }));
         throw new Error(
           errorData.error || `Image generation failed: ${response.status}`
         );

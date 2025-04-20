@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import * as cheerio from "cheerio"; // Import cheerio
+import { v4 as uuidv4 } from "uuid"; // Import uuid generator
+import { db } from "@/db"; // Import Drizzle client (using alias)
+import { briefs } from "@/db/schema"; // Import briefs table schema (using alias)
 
 // Ensure you have OPENAI_API_KEY in your .env.local
 const openai = new OpenAI({
@@ -21,6 +24,7 @@ interface Scene {
   visual: Visual;
 }
 interface BriefData {
+  id?: string; // Add optional ID
   title: string;
   language: string;
   scenes: Scene[];
@@ -66,6 +70,8 @@ function extractTextFromHtml(html: string): string {
 }
 
 export async function POST(request: Request) {
+  let generatedBriefId: string | undefined = undefined; // Initialize as undefined
+
   try {
     const body: RequestBody = await request.json();
     const { url } = body;
@@ -204,7 +210,63 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message }, { status: 500 }); // Return error if text gen fails
     }
 
-    // --- Return Final Brief (Text Only) ---
+    // --- Save to Database ---
+    try {
+      console.log("API: Saving brief to database...");
+      const newBriefId = uuidv4(); // Generate a new UUID
+
+      // Log the data structure before attempting insertion
+      console.log("--- Data to Insert ---");
+      console.log(JSON.stringify(briefJson, null, 2));
+      console.log("--- End Data to Insert ---");
+
+      const result = await db
+        .insert(briefs)
+        .values({
+          id: newBriefId,
+          title: briefJson.title,
+          language: briefJson.language,
+          scenes: briefJson.scenes as any, // Explicitly cast to satisfy TypeScript with Drizzle
+          sourceUrl: url, // Revert back to camelCase for Drizzle
+          // createdAt/updatedAt have defaults
+        })
+        .returning({ insertedId: briefs.id });
+
+      if (result && result[0]?.insertedId) {
+        generatedBriefId = result[0].insertedId;
+        console.log(
+          `API: Brief saved successfully with ID: ${generatedBriefId}`
+        );
+        briefJson.id = generatedBriefId; // Add the ID to the object being returned
+      } else {
+        console.error(
+          "API Error: Failed to insert brief into database or get ID back."
+        );
+        // Return an error response instead of silently continuing
+        return NextResponse.json(
+          {
+            error:
+              "Brief generated but failed to save to database (no ID returned).",
+            generatedBrief: briefJson, // Optionally return the generated content
+          },
+          { status: 500 }
+        );
+      }
+    } catch (dbError) {
+      console.error("API Error: Database insertion failed:", dbError);
+      // Return an error response instead of silently continuing
+      return NextResponse.json(
+        {
+          error: "Brief generated but failed during database insertion.",
+          details: dbError instanceof Error ? dbError.message : String(dbError),
+          generatedBrief: briefJson, // Optionally return the generated content
+        },
+        { status: 500 }
+      );
+    }
+    // --- End Save to Database ---
+
+    // --- Return Final Brief (Only if Save was Successful) ---
     return NextResponse.json(briefJson, { status: 200 });
   } catch (error) {
     // This catches errors from the main try block, including text gen failures re-thrown or fetch errors
