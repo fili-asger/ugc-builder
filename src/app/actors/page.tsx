@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -12,21 +13,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -34,486 +35,477 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { AlertCircle, ExternalLink } from "lucide-react";
-import type { PutBlobResult } from "@vercel/blob"; // Import type
+import { AlertCircle, PlusCircle, UserCircle2, Upload, X } from "lucide-react";
+import { ActorTableItem } from "@/app/api/actors/route";
+import { availabilityStatusEnum } from "@/db/schema";
+import { cn } from "@/lib/utils";
 
-// Use the interface defined in the API route
-import type { ActorListItem } from "../api/actors/route";
-// Import enum values (assuming they are exported from schema)
-// If not exported, define them here or import differently
-import { genderEnum, actorTypeEnum } from "@/db/schema"; // Adjust path if needed
-
-// Define types for the form data
-interface ActorFormData {
-  name: string;
-  profileImage: string; // Will store the URL after upload
-  visualDescription: string;
-  nationality: string;
-  gender: (typeof genderEnum.enumValues)[number] | ""; // Allow empty initial state
-  actorType: (typeof actorTypeEnum.enumValues)[number] | ""; // Allow empty initial state
-  elevenlabsVoiceId?: string;
-}
-
-const initialFormData: ActorFormData = {
-  name: "",
-  profileImage: "", // Initially empty URL
-  visualDescription: "",
-  nationality: "",
-  gender: "",
-  actorType: "",
-  elevenlabsVoiceId: "",
-};
-
-export default function ActorsListPage() {
-  const [actors, setActors] = useState<ActorListItem[]>([]);
+export default function ActorsPage() {
+  const [actors, setActors] = useState<ActorTableItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [listError, setListError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // State for the modal form
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState<ActorFormData>(initialFormData);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null); // State for file object
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [nationality, setNationality] = useState("");
+  const [availability, setAvailability] = useState<string>(
+    availabilityStatusEnum.enumValues[0]
+  );
+  const [headshotFile, setHeadshotFile] = useState<File | null>(null);
+  const [headshotPreview, setHeadshotPreview] = useState<string | null>(null);
+
+  const fetchActors = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/actors");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch actors");
+      }
+      const data: ActorTableItem[] = await response.json();
+      setActors(data);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
+      console.error("Fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchActors = async () => {
-      setLoading(true);
-      setListError(null);
-      try {
-        const response = await fetch("/api/actors");
-        if (!response.ok) {
-          const errorData = await response
-            .json()
-            .catch(() => ({ error: "Failed to parse error" }));
-          throw new Error(
-            errorData.error || `Failed to fetch actors: ${response.status}`
-          );
-        }
-        const data: ActorListItem[] = await response.json();
-        setActors(data);
-      } catch (err) {
-        console.error("Failed to fetch actors:", err);
-        setListError(
-          err instanceof Error ? err.message : "An unknown error occurred."
-        );
-      }
-      setLoading(false);
-    };
-
     fetchActors();
   }, []);
 
-  // Handle input changes
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const resetModal = () => {
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setPhone("");
+    setNationality("");
+    setAvailability(availabilityStatusEnum.enumValues[0]);
+    setHeadshotFile(null);
+    setHeadshotPreview(null);
+    setModalError(null);
+    setIsSubmitting(false);
+    setUploadProgress(null);
   };
 
-  // Handle file input change
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setSelectedFile(e.target.files[0]);
-      // Clear any previous URL if a new file is selected
-      setFormData((prev) => ({ ...prev, profileImage: "" }));
+  const handleModalChange = (open: boolean) => {
+    setIsModalOpen(open);
+    if (!open) {
+      resetModal();
     }
   };
 
-  // Handle select changes
-  const handleSelectChange = (name: keyof ActorFormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  // Handle form submission
-  const handleSaveActor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setFormError(null);
-
-    // --- File Upload Step ---
-    let imageUrl = formData.profileImage; // Use existing URL if no new file selected
-    if (selectedFile) {
-      try {
-        const uploadResponse = await fetch(
-          `/api/actors/upload-image?filename=${encodeURIComponent(
-            selectedFile.name
-          )}`,
-          {
-            method: "POST",
-            body: selectedFile,
-            // headers: { 'Content-Type': selectedFile.type }, // Optional: Vercel Blob can often infer
-          }
-        );
-
-        if (!uploadResponse.ok) {
-          const errorData = await uploadResponse
-            .json()
-            .catch(() => ({ error: "Upload failed, could not parse error" }));
-          throw new Error(
-            errorData.error || `Image upload failed: ${uploadResponse.status}`
-          );
-        }
-
-        const newBlob = (await uploadResponse.json()) as PutBlobResult;
-        imageUrl = newBlob.url; // Get the URL from Vercel Blob
-        console.log("File uploaded successfully:", imageUrl);
-      } catch (uploadError) {
-        console.error("File upload failed:", uploadError);
-        setFormError(
-          uploadError instanceof Error
-            ? uploadError.message
-            : "Failed to upload image."
-        );
-        setIsSaving(false);
-        return; // Stop if upload fails
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const allowedTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        setModalError("Invalid file type selected (JPG, PNG, GIF, WEBP).");
+        setHeadshotFile(null);
+        setHeadshotPreview(null);
+        return;
       }
+      if (file.size > 5 * 1024 * 1024) {
+        setModalError("File size exceeds 5MB.");
+        setHeadshotFile(null);
+        setHeadshotPreview(null);
+        return;
+      }
+      setHeadshotFile(file);
+      setModalError(null);
+      setHeadshotPreview(URL.createObjectURL(file));
+    } else {
+      setHeadshotFile(null);
+      setHeadshotPreview(null);
     }
-    // --- End File Upload ---
+  };
 
-    // Basic Validation (including checking if we have an image URL now)
-    if (
-      !formData.name ||
-      !imageUrl ||
-      !formData.visualDescription ||
-      !formData.nationality ||
-      !formData.gender ||
-      !formData.actorType
-    ) {
-      setFormError(
-        "Please fill in all required fields and ensure an image is uploaded or provided."
-      );
-      setIsSaving(false);
+  const clearHeadshotFile = () => {
+    setHeadshotFile(null);
+    setHeadshotPreview(null);
+    const fileInput = document.getElementById(
+      "headshot-upload"
+    ) as HTMLInputElement;
+    if (fileInput) fileInput.value = "";
+  };
+
+  const handleCreateActor = async () => {
+    if (!firstName || !lastName) {
+      setModalError("First and Last name are required.");
       return;
     }
-
-    // Prepare final data with potentially new image URL
-    const finalFormData = { ...formData, profileImage: imageUrl };
+    setIsSubmitting(true);
+    setModalError(null);
+    setUploadProgress(null);
+    let uploadedAssetId: string | null = null;
 
     try {
-      console.log("Submitting final actor data:", finalFormData);
-      const response = await fetch("/api/actors", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(finalFormData),
-      });
+      if (headshotFile) {
+        setUploadProgress(0);
 
-      if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ error: "Failed to parse error response" }));
-        throw new Error(
-          errorData.error || `Failed to save actor: ${response.status}`
-        );
+        const uploadResponse = await fetch("/api/assets/upload-headshot", {
+          method: "POST",
+          headers: {
+            "x-vercel-filename": headshotFile.name,
+            "content-type": headshotFile.type,
+          },
+          body: headshotFile,
+        });
+
+        await new Promise((res) => setTimeout(res, 300));
+        setUploadProgress(50);
+        await new Promise((res) => setTimeout(res, 300));
+        setUploadProgress(100);
+
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json();
+          throw new Error(errorData.error || "Headshot upload failed");
+        }
+        const uploadResult = await uploadResponse.json();
+        uploadedAssetId = uploadResult.assetId;
+        if (!uploadedAssetId) {
+          throw new Error(
+            "Headshot upload succeeded but no Asset ID was returned."
+          );
+        }
       }
 
-      // Success
-      const newActor = await response.json();
-      setActors((prevActors) => [newActor, ...prevActors]);
-      setIsModalOpen(false);
-      // Form reset happens via useEffect
-    } catch (err) {
-      console.error("Failed to save actor:", err);
-      setFormError(
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred during save."
+      const payload = {
+        firstName,
+        lastName,
+        email: email || null,
+        phone: phone || null,
+        nationality: nationality || null,
+        headshotAssetId: uploadedAssetId,
+        availabilityStatus: availability,
+      };
+
+      const createResponse = await fetch("/api/actors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json();
+        const details = errorData.details
+          ? JSON.stringify(errorData.details)
+          : "";
+        throw new Error(
+          `${errorData.error || "Failed to create actor"}${
+            details ? `: ${details}` : ""
+          }`
+        );
+      }
+      const createdActor: ActorTableItem = await createResponse.json();
+      setActors((prev) =>
+        [createdActor, ...prev].sort((a, b) => a.name.localeCompare(b.name))
       );
+      handleModalChange(false);
+    } catch (err) {
+      setModalError(
+        err instanceof Error ? err.message : "An unknown error occurred"
+      );
+      console.error("Create actor error:", err);
     } finally {
-      setIsSaving(false);
+      setIsSubmitting(false);
+      setUploadProgress(null);
     }
   };
 
-  // Reset form and file input when modal opens/closes
-  useEffect(() => {
-    if (isModalOpen) {
-      setFormData(initialFormData);
-      setSelectedFile(null);
-      setFormError(null);
-      // Reset the file input visually (optional but good UX)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } else {
-      // Also reset if modal closes without saving
-      setSelectedFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  }, [isModalOpen]);
-
   return (
-    <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6">
+    <main className="flex flex-1 flex-col gap-4 p-4 md:gap-6 md:p-8">
       <div className="flex items-center">
         <h1 className="font-semibold text-lg md:text-2xl">Actors</h1>
-        {/* --- Dialog Trigger Button --- */}
-        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <Dialog open={isModalOpen} onOpenChange={handleModalChange}>
           <DialogTrigger asChild>
-            <Button className="ml-auto" size="sm">
-              Add Actor
+            <Button size="sm" className="ml-auto">
+              <PlusCircle className="h-4 w-4 mr-2" />
+              Create Actor
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Create New Actor</DialogTitle>
               <DialogDescription>
-                Fill in the details for the new actor.
+                Enter the details for the new actor. First and last name are
+                required.
               </DialogDescription>
             </DialogHeader>
-            {/* --- Actor Form --- */}
-            <form onSubmit={handleSaveActor} className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">
-                  Name
-                </Label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="col-span-3"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="profileImageFile" className="text-right">
-                  Profile Image
-                </Label>
-                <Input
-                  id="profileImageFile"
-                  name="profileImageFile"
-                  type="file"
-                  onChange={handleFileChange}
-                  className="col-span-3"
-                  accept="image/*"
-                  ref={fileInputRef}
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="visualDescription" className="text-right">
-                  Visual Description
-                </Label>
-                <Textarea
-                  id="visualDescription"
-                  name="visualDescription"
-                  value={formData.visualDescription}
-                  onChange={handleInputChange}
-                  className="col-span-3"
-                  required
-                  minLength={10}
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="nationality" className="text-right">
-                  Nationality
-                </Label>
-                <Input
-                  id="nationality"
-                  name="nationality"
-                  value={formData.nationality}
-                  onChange={handleInputChange}
-                  className="col-span-3"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="gender" className="text-right">
-                  Gender
-                </Label>
-                <Select
-                  name="gender"
-                  value={formData.gender}
-                  onValueChange={(value) => handleSelectChange("gender", value)}
-                  required
-                >
-                  <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {genderEnum.enumValues.map((gender) => (
-                      <SelectItem key={gender} value={gender}>
-                        {gender}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="actorType" className="text-right">
-                  Actor Type
-                </Label>
-                <Select
-                  name="actorType"
-                  value={formData.actorType}
-                  onValueChange={(value) =>
-                    handleSelectChange("actorType", value)
-                  }
-                  required
-                >
-                  <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {actorTypeEnum.enumValues.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="elevenlabsVoiceId" className="text-right">
-                  ElevenLabs ID (Opt.)
-                </Label>
-                <Input
-                  id="elevenlabsVoiceId"
-                  name="elevenlabsVoiceId"
-                  value={formData.elevenlabsVoiceId}
-                  onChange={handleInputChange}
-                  className="col-span-3"
-                  maxLength={32}
-                  placeholder="Optional voice ID"
-                />
-              </div>
-
-              {formError && (
-                <p className="text-red-500 text-sm col-span-4 text-center">
-                  {formError}
-                </p>
+            <div className="grid gap-4 py-4">
+              {modalError && (
+                <Alert variant="destructive" className="text-xs p-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{modalError}</AlertDescription>
+                </Alert>
               )}
-
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline" disabled={isSaving}>
-                    Cancel
-                  </Button>
-                </DialogClose>
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving ? "Saving..." : "Save Actor"}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="firstName">First Name *</Label>
+                  <Input
+                    id="firstName"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="lastName">Last Name *</Label>
+                  <Input
+                    id="lastName"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="(Optional)"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="(Optional)"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="nationality">Nationality</Label>
+                  <Input
+                    id="nationality"
+                    value={nationality}
+                    onChange={(e) => setNationality(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="(Optional)"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="availability">Availability</Label>
+                  <Select
+                    value={availability}
+                    onValueChange={setAvailability}
+                    disabled={isSubmitting}
+                  >
+                    <SelectTrigger id="availability">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availabilityStatusEnum.enumValues.map((status) => (
+                        <SelectItem
+                          key={status}
+                          value={status}
+                          className="capitalize"
+                        >
+                          {status}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="headshot-upload">Headshot</Label>
+                <Input
+                  id="headshot-upload"
+                  type="file"
+                  accept="image/png, image/jpeg, image/gif, image/webp"
+                  onChange={handleFileChange}
+                  className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                  disabled={isSubmitting}
+                />
+                {headshotPreview && (
+                  <div className="mt-2 relative w-24 h-24 border rounded-full overflow-hidden bg-muted">
+                    <Image
+                      src={headshotPreview}
+                      alt="Headshot preview"
+                      layout="fill"
+                      objectFit="cover"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-0 right-0 h-5 w-5 rounded-full"
+                      onClick={clearHeadshotFile}
+                      disabled={isSubmitting}
+                      aria-label="Remove image"
+                    >
+                      {" "}
+                      <X className="h-3 w-3" />{" "}
+                    </Button>
+                  </div>
+                )}
+                {!headshotPreview && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Upload a PNG, JPG, GIF, or WEBP (Max 5MB).
+                  </p>
+                )}
+                {uploadProgress !== null && (
+                  <div className="mt-2 h-2 w-full bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-300 ease-linear"
+                      style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline" disabled={isSubmitting}>
+                  Cancel
                 </Button>
-              </DialogFooter>
-            </form>
-            {/* --- End Actor Form --- */}
+              </DialogClose>
+              <Button
+                type="button"
+                onClick={handleCreateActor}
+                disabled={isSubmitting}
+              >
+                {isSubmitting
+                  ? uploadProgress !== null
+                    ? `Uploading...`
+                    : "Saving..."
+                  : "Create Actor"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
-        {/* --- End Dialog --- */}
       </div>
+
+      {error && !loading && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error Loading Actors</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="border shadow-sm rounded-lg">
         <Table>
           <TableCaption>
             {loading
               ? "Loading actors..."
-              : listError
-              ? ""
+              : actors.length === 0
+              ? "No actors found."
               : "A list of registered actors."}
           </TableCaption>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[80px]">Image</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Nationality</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="w-[60px]"></TableHead>
+              <TableHead className="w-[200px]">Name</TableHead>
+              <TableHead>Contact</TableHead>
+              <TableHead className="w-[120px]">Nationality</TableHead>
+              <TableHead className="w-[120px]">Status</TableHead>
+              <TableHead className="text-right w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading &&
-              // Skeleton Loader Rows
-              Array.from({ length: 3 }).map((_, index) => (
+              Array.from({ length: 5 }).map((_, index) => (
                 <TableRow key={`skeleton-${index}`}>
                   <TableCell>
                     <Skeleton className="h-10 w-10 rounded-full" />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-4 w-[150px]" />
+                    <Skeleton className="h-4 w-3/4" />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-4 w-[80px]" />
+                    <Skeleton className="h-4 w-full mb-1" />
+                    <Skeleton className="h-3 w-1/2" />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-4 w-[50px]" />
+                    <Skeleton className="h-4 w-full" />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-4 w-[100px]" />
+                    <Skeleton className="h-6 w-20 rounded-full" />
                   </TableCell>
                   <TableCell className="text-right">
                     <Skeleton className="h-8 w-[60px] float-right" />
                   </TableCell>
                 </TableRow>
               ))}
-            {!loading && listError && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-red-500">
-                  <div className="flex items-center justify-center gap-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>Error loading actors: {listError}</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && !listError && actors.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-center text-muted-foreground"
-                >
-                  No actors found.
-                </TableCell>
-              </TableRow>
-            )}
             {!loading &&
-              !listError &&
               actors.map((actor) => (
-                <TableRow key={actor.actorId}>
+                <TableRow key={actor.id}>
                   <TableCell>
-                    {actor.profileImage ? (
+                    {actor.headshotUrl ? (
                       <Image
-                        src={actor.profileImage}
-                        alt={actor.name}
+                        src={actor.headshotUrl}
+                        alt={`${actor.name} headshot`}
                         width={40}
                         height={40}
-                        className="rounded-full object-cover aspect-square"
+                        className="rounded-full object-cover border"
                       />
                     ) : (
-                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">
-                        N/A
+                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center border">
+                        <UserCircle2 className="h-6 w-6 text-muted-foreground" />
                       </div>
                     )}
                   </TableCell>
                   <TableCell className="font-medium">{actor.name}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
+                    <div>{actor.email || "-"}</div>
+                    <div className="text-xs">{actor.phone || "-"}</div>
+                  </TableCell>
+                  <TableCell className="text-sm">
                     {actor.nationality || "N/A"}
                   </TableCell>
                   <TableCell>
                     <Badge
                       variant={
-                        actor.actorType === "ai" ? "secondary" : "outline"
+                        actor.availabilityStatus === "available"
+                          ? "default"
+                          : "secondary"
                       }
+                      className={cn(
+                        actor.availabilityStatus === "available"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400",
+                        "capitalize"
+                      )}
                     >
-                      {actor.actorType}
+                      {actor.availabilityStatus}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {new Date(actor.createdAt).toLocaleDateString()}
-                  </TableCell>
                   <TableCell className="text-right">
-                    {/* Link to a future actor detail page */}
-                    {/* <Link href={`/actors/${actor.actorId}`} passHref legacyBehavior> */}
                     <Button variant="outline" size="sm" disabled>
-                      {" "}
-                      {/* Disable view button for now */}
                       View
                     </Button>
-                    {/* </Link> */}
                   </TableCell>
                 </TableRow>
               ))}

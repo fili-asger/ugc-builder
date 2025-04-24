@@ -1,131 +1,149 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { actor } from "@/db/schema";
-import { desc, sql } from "drizzle-orm";
+import { actor, asset, availabilityStatusEnum } from "@/db/schema";
+import { desc, sql, eq } from "drizzle-orm";
+import { z } from "zod";
 
-// Adjust the interface to match the actual available data
-export interface ActorListItem {
-  actorId: string; // Renamed from 'id'
+// Define the interface for the table list items
+export interface ActorTableItem {
+  id: string; // Changed from actorId to match schema
   name: string; // Combined from firstName and lastName
+  email: string | null;
+  phone: string | null;
   nationality: string | null;
-  // createdAt: Date; // Removed based on linter error/schema
-  // Removed profileImage and actorType as they don't seem to be in the 'actor' table schema
+  availabilityStatus: "available" | "unavailable";
+  headshotUrl: string | null; // Added for headshot image
 }
+
+// Base URL for assets served (replace if using external storage)
+const ASSET_BASE_URL = "/";
 
 export async function GET(request: Request) {
   try {
-    console.log("API: Fetching all actors...");
+    console.log("API: Fetching actors for table view...");
 
-    // Select correct fields based on schema and combine name
-    const allActors: ActorListItem[] = await db
+    // Select fields needed for the table, join for headshot
+    const actorsData = await db
       .select({
-        actorId: actor.id, // Select 'id' and alias
-        // Combine firstName and lastName using sql template literal
-        name: sql<string>`concat(${actor.firstName}, \' \', ${actor.lastName})`,
+        id: actor.id,
+        firstName: actor.firstName, // Select first/last to combine later if needed (or use sql)
+        lastName: actor.lastName,
+        email: actor.email,
+        phone: actor.phone,
         nationality: actor.nationality,
-        // createdAt: actor.createdAt, // Removed - Field doesn't exist
-        // actorType: actor.actorType, // Field doesn't seem to exist
-        // profileImage: actor.profileImage, // Field doesn't seem to exist
+        availabilityStatus: actor.availabilityStatus,
+        headshotStorageKey: asset.storageKey, // Get the storage key for the headshot
       })
-      .from(actor) // Use singular 'actor'
-      .orderBy(desc(actor.firstName)); // Order by first name now, as createdAt isn't available
+      .from(actor)
+      // Left join asset table on headshotAssetId
+      .leftJoin(asset, eq(actor.headshotAssetId, asset.id))
+      .orderBy(desc(actor.lastName), desc(actor.firstName)); // Order by name
 
-    console.log(`API: Found ${allActors.length} actors.`);
+    // Construct name and headshot URL
+    const actorsForTable: ActorTableItem[] = actorsData.map((a) => ({
+      id: a.id,
+      name: `${a.firstName} ${a.lastName}`,
+      email: a.email,
+      phone: a.phone,
+      nationality: a.nationality,
+      availabilityStatus: a.availabilityStatus,
+      headshotUrl: a.headshotStorageKey
+        ? `${ASSET_BASE_URL}${a.headshotStorageKey}`
+        : null,
+    }));
 
-    return NextResponse.json(allActors, { status: 200 });
+    console.log(`API: Found ${actorsForTable.length} actors for table.`);
+    return NextResponse.json(actorsForTable, { status: 200 });
   } catch (error) {
-    console.error("API Error: Failed to fetch all actors:", error);
+    console.error("API Error: Failed to fetch actors for table:", error);
     const errorMessage =
       error instanceof Error
         ? error.message
         : "An unexpected server error occurred.";
-    // Return 500 status code on error
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
-// Interface for the incoming POST request body - Needs review based on actual schema
-interface CreateActorPayload {
-  firstName: string; // Corrected field name
-  lastName: string; // Corrected field name
-  email?: string;
-  phone?: string;
-  nationality?: string | null;
-  // profileImage: string; // Field seems missing in schema
-  // visualDescription: string; // Field seems missing in schema
-  // gender: (typeof genderEnum.enumValues)[number]; // Field seems missing in schema
-  // actorType: (typeof actorTypeEnum.enumValues)[number]; // Field seems missing in schema
-  // elevenlabsVoiceId?: string; // Field seems missing in schema
-}
+// Zod schema for actor creation payload
+const createActorSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().email("Invalid email format").optional().nullable(),
+  phone: z.string().optional().nullable(),
+  nationality: z.string().optional().nullable(),
+  // Include optional headshotAssetId (UUID)
+  headshotAssetId: z.string().uuid("Invalid Asset ID").optional().nullable(),
+  // Availability status defaults in DB, but allow override if needed
+  availabilityStatus: z.enum(availabilityStatusEnum.enumValues).optional(),
+  // Add other fields from schema as needed (portfolioWebsite, etc.)
+});
 
-// POST handler to create a new actor - Needs significant review/correction
 export async function POST(request: Request) {
-  // NOTE: This POST handler likely needs significant updates to match the
-  // actual 'actor' schema (firstName, lastName, email, phone, etc.)
-  // and validation logic needs to be based on the correct fields.
-  // Leaving it as is for now as it's not directly causing the GET error,
-  // but it will fail if called.
-
-  let errorMessage: string; // Define errorMessage once
+  let errorMessage: string;
   try {
-    const body: CreateActorPayload = await request.json();
-    console.log(
-      "API: Received actor data for POST (NEEDS SCHEMA REVIEW):",
-      body
-    );
+    const body = await request.json();
+    console.log("API: Received actor data for POST:", body);
 
-    // !!! IMPORTANT: Validation below is based on outdated schema assumptions !!!
-    // It needs to be updated based on the actual 'actor' table schema.
-    if (!body.firstName || !body.lastName /* ... other required fields ...*/) {
+    // Validate payload
+    const validation = createActorSchema.safeParse(body);
+    if (!validation.success) {
+      console.error("API Validation Error:", validation.error.flatten());
       return NextResponse.json(
-        { error: "Missing required fields (Schema needs review)" },
+        { error: "Invalid input data", details: validation.error.flatten() },
         { status: 400 }
       );
     }
+    const actorData = validation.data;
 
-    // Prepare data for insertion based on the correct schema
+    // Data to insert (matches schema fields)
     const dataToInsert = {
-      firstName: body.firstName,
-      lastName: body.lastName,
-      email: body.email,
-      phone: body.phone,
-      nationality: body.nationality,
-      // ... map other fields from CreateActorPayload to actor schema fields ...
+      firstName: actorData.firstName,
+      lastName: actorData.lastName,
+      email: actorData.email,
+      phone: actorData.phone,
+      nationality: actorData.nationality,
+      headshotAssetId: actorData.headshotAssetId, // Use validated ID
+      availabilityStatus: actorData.availabilityStatus, // Use validated status or let DB default
+      // Add other fields here if they are included in the schema/payload
     };
 
-    console.log("API: Inserting actor into database (NEEDS SCHEMA REVIEW)...");
+    console.log("API: Inserting actor into database:", dataToInsert);
     const result = await db
       .insert(actor)
       .values(dataToInsert)
-      .returning({
-        // Return fields based on corrected selection logic (similar to GET)
-        actorId: actor.id,
-        name: sql<string>`concat(${actor.firstName}, \' \', ${actor.lastName})`,
-        nationality: actor.nationality,
-        // createdAt: actor.createdAt, // Removed - Field doesn't exist
-      });
+      .returning({ id: actor.id });
 
     if (!result || result.length === 0) {
-      console.error("API Error: Failed to insert actor or get result back.");
-      return NextResponse.json(
-        { error: "Database insertion failed." },
-        { status: 500 }
-      );
+      throw new Error("Database insertion failed.");
     }
-
     const newActor = result[0];
-    console.log(
-      `API: Actor created successfully with ID: ${newActor.actorId} (SCHEMA REVIEW NEEDED)`
-    );
 
-    return NextResponse.json(newActor, { status: 201 });
-  } catch (error: any) {
-    console.error(
-      "API Error: Failed to create actor (NEEDS SCHEMA REVIEW):",
-      error
+    // Fetch the full data including headshot URL to return
+    const createdActorData = await db
+      .select({
+        id: actor.id,
+        name: sql<string>`concat(${actor.firstName}, ' ', ${actor.lastName})`,
+        email: actor.email,
+        phone: actor.phone,
+        nationality: actor.nationality,
+        availabilityStatus: actor.availabilityStatus,
+        headshotUrl: asset.storageKey,
+      })
+      .from(actor)
+      .leftJoin(asset, eq(actor.headshotAssetId, asset.id))
+      .where(eq(actor.id, newActor.id))
+      .limit(1);
+
+    console.log(
+      `API: Actor ${
+        createdActorData[0]?.name ?? newActor.id
+      } created successfully.`
     );
-    // Specific error handling might need adjustment based on actual schema constraints
-    errorMessage = // Assign to existing variable
+    return NextResponse.json(createdActorData[0] ?? null, { status: 201 });
+  } catch (error: any) {
+    console.error("API Error: Failed to create actor:", error);
+    // Add specific constraint error checks if needed (e.g., unique email)
+    errorMessage =
       error instanceof Error
         ? error.message
         : "An unexpected server error occurred.";
