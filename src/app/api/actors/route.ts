@@ -15,8 +15,7 @@ export interface ActorTableItem {
   headshotUrl: string | null; // Added for headshot image
 }
 
-// Base URL for assets served (replace if using external storage)
-const ASSET_BASE_URL = "/";
+// Removed ASSET_BASE_URL as storageKey now holds the full URL
 
 export async function GET(request: Request) {
   try {
@@ -39,7 +38,7 @@ export async function GET(request: Request) {
       .leftJoin(asset, eq(actor.headshotAssetId, asset.id))
       .orderBy(desc(actor.lastName), desc(actor.firstName)); // Order by name
 
-    // Construct name and headshot URL
+    // Map directly, using storageKey as the headshotUrl
     const actorsForTable: ActorTableItem[] = actorsData.map((a) => ({
       id: a.id,
       name: `${a.firstName} ${a.lastName}`,
@@ -47,9 +46,7 @@ export async function GET(request: Request) {
       phone: a.phone,
       nationality: a.nationality,
       availabilityStatus: a.availabilityStatus,
-      headshotUrl: a.headshotStorageKey
-        ? `${ASSET_BASE_URL}${a.headshotStorageKey}`
-        : null,
+      headshotUrl: a.headshotStorageKey, // Use storageKey directly as it's the full URL
     }));
 
     console.log(`API: Found ${actorsForTable.length} actors for table.`);
@@ -127,7 +124,7 @@ export async function POST(request: Request) {
         phone: actor.phone,
         nationality: actor.nationality,
         availabilityStatus: actor.availabilityStatus,
-        headshotUrl: asset.storageKey,
+        headshotUrl: asset.storageKey, // Use storageKey directly here too
       })
       .from(actor)
       .leftJoin(asset, eq(actor.headshotAssetId, asset.id))
