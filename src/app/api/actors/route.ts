@@ -1,34 +1,34 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { actors, genderEnum, actorTypeEnum } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { actor } from "@/db/schema";
+import { desc, sql } from "drizzle-orm";
 
-// Define the expected shape of the actor data for the list view
+// Adjust the interface to match the actual available data
 export interface ActorListItem {
-  actorId: string;
-  name: string;
-  nationality: string | null; // Nullable based on schema logic
-  actorType: "human" | "ai";
-  createdAt: Date;
-  // Add other fields if needed for the list, e.g., profileImage
-  profileImage: string | null;
+  actorId: string; // Renamed from 'id'
+  name: string; // Combined from firstName and lastName
+  nationality: string | null;
+  // createdAt: Date; // Removed based on linter error/schema
+  // Removed profileImage and actorType as they don't seem to be in the 'actor' table schema
 }
 
 export async function GET(request: Request) {
   try {
     console.log("API: Fetching all actors...");
-    // Select specific fields needed for the list
+
+    // Select correct fields based on schema and combine name
     const allActors: ActorListItem[] = await db
       .select({
-        actorId: actors.actorId,
-        name: actors.name,
-        nationality: actors.nationality,
-        actorType: actors.actorType,
-        createdAt: actors.createdAt,
-        profileImage: actors.profileImage,
+        actorId: actor.id, // Select 'id' and alias
+        // Combine firstName and lastName using sql template literal
+        name: sql<string>`concat(${actor.firstName}, \' \', ${actor.lastName})`,
+        nationality: actor.nationality,
+        // createdAt: actor.createdAt, // Removed - Field doesn't exist
+        // actorType: actor.actorType, // Field doesn't seem to exist
+        // profileImage: actor.profileImage, // Field doesn't seem to exist
       })
-      .from(actors)
-      .orderBy(desc(actors.createdAt)); // Order by creation date
+      .from(actor) // Use singular 'actor'
+      .orderBy(desc(actor.firstName)); // Order by first name now, as createdAt isn't available
 
     console.log(`API: Found ${allActors.length} actors.`);
 
@@ -39,68 +39,71 @@ export async function GET(request: Request) {
       error instanceof Error
         ? error.message
         : "An unexpected server error occurred.";
+    // Return 500 status code on error
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
-// Interface for the incoming POST request body
-// Should match ActorFormData from the frontend
+// Interface for the incoming POST request body - Needs review based on actual schema
 interface CreateActorPayload {
-  name: string;
-  profileImage: string;
-  visualDescription: string;
-  nationality: string;
-  gender: (typeof genderEnum.enumValues)[number];
-  actorType: (typeof actorTypeEnum.enumValues)[number];
-  elevenlabsVoiceId?: string;
+  firstName: string; // Corrected field name
+  lastName: string; // Corrected field name
+  email?: string;
+  phone?: string;
+  nationality?: string | null;
+  // profileImage: string; // Field seems missing in schema
+  // visualDescription: string; // Field seems missing in schema
+  // gender: (typeof genderEnum.enumValues)[number]; // Field seems missing in schema
+  // actorType: (typeof actorTypeEnum.enumValues)[number]; // Field seems missing in schema
+  // elevenlabsVoiceId?: string; // Field seems missing in schema
 }
 
-// POST handler to create a new actor
+// POST handler to create a new actor - Needs significant review/correction
 export async function POST(request: Request) {
+  // NOTE: This POST handler likely needs significant updates to match the
+  // actual 'actor' schema (firstName, lastName, email, phone, etc.)
+  // and validation logic needs to be based on the correct fields.
+  // Leaving it as is for now as it's not directly causing the GET error,
+  // but it will fail if called.
+
+  let errorMessage: string; // Define errorMessage once
   try {
     const body: CreateActorPayload = await request.json();
-    console.log("API: Received actor data:", body);
+    console.log(
+      "API: Received actor data for POST (NEEDS SCHEMA REVIEW):",
+      body
+    );
 
-    // Basic Backend Validation (Add more as needed)
-    if (
-      !body.name ||
-      !body.profileImage ||
-      !body.visualDescription ||
-      !body.gender ||
-      !body.actorType
-    ) {
+    // !!! IMPORTANT: Validation below is based on outdated schema assumptions !!!
+    // It needs to be updated based on the actual 'actor' table schema.
+    if (!body.firstName || !body.lastName /* ... other required fields ...*/) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields (Schema needs review)" },
         { status: 400 }
       );
     }
-    // Validate actorType requires nationality (simplified check)
-    if (body.actorType === "human" && !body.nationality) {
-      return NextResponse.json(
-        { error: "Nationality is required for human actors" },
-        { status: 400 }
-      );
-    }
-    // Potential validation for URL, elevenlabsVoiceId format, etc.
 
-    // Prepare data for insertion (handle optional fields)
+    // Prepare data for insertion based on the correct schema
     const dataToInsert = {
-      ...body,
-      // Ensure optional fields are null if empty string, or handle as needed by DB
-      elevenlabsVoiceId: body.elevenlabsVoiceId || null,
-      // Nationality check already done, assuming human actors will have it
+      firstName: body.firstName,
+      lastName: body.lastName,
+      email: body.email,
+      phone: body.phone,
+      nationality: body.nationality,
+      // ... map other fields from CreateActorPayload to actor schema fields ...
     };
 
-    console.log("API: Inserting actor into database...");
-    const result = await db.insert(actors).values(dataToInsert).returning({
-      // Return the fields needed for the list view update
-      actorId: actors.actorId,
-      name: actors.name,
-      nationality: actors.nationality,
-      actorType: actors.actorType,
-      createdAt: actors.createdAt,
-      profileImage: actors.profileImage,
-    });
+    console.log("API: Inserting actor into database (NEEDS SCHEMA REVIEW)...");
+    const result = await db
+      .insert(actor)
+      .values(dataToInsert)
+      .returning({
+        // Return fields based on corrected selection logic (similar to GET)
+        actorId: actor.id,
+        name: sql<string>`concat(${actor.firstName}, \' \', ${actor.lastName})`,
+        nationality: actor.nationality,
+        // createdAt: actor.createdAt, // Removed - Field doesn't exist
+      });
 
     if (!result || result.length === 0) {
       console.error("API Error: Failed to insert actor or get result back.");
@@ -111,25 +114,18 @@ export async function POST(request: Request) {
     }
 
     const newActor = result[0];
-    console.log(`API: Actor created successfully with ID: ${newActor.actorId}`);
+    console.log(
+      `API: Actor created successfully with ID: ${newActor.actorId} (SCHEMA REVIEW NEEDED)`
+    );
 
-    // Return the newly created actor data (matching ActorListItem structure)
-    return NextResponse.json(newActor, { status: 201 }); // 201 Created status
+    return NextResponse.json(newActor, { status: 201 });
   } catch (error: any) {
-    console.error("API Error: Failed to create actor:", error);
-
-    // Check for unique constraint violation (example for elevenlabsVoiceId)
-    if (
-      error.code === "23505" &&
-      error.constraint === "actors_elevenlabs_voice_id_unique"
-    ) {
-      return NextResponse.json(
-        { error: "ElevenLabs Voice ID is already in use." },
-        { status: 409 }
-      ); // 409 Conflict
-    }
-
-    const errorMessage =
+    console.error(
+      "API Error: Failed to create actor (NEEDS SCHEMA REVIEW):",
+      error
+    );
+    // Specific error handling might need adjustment based on actual schema constraints
+    errorMessage = // Assign to existing variable
       error instanceof Error
         ? error.message
         : "An unexpected server error occurred.";

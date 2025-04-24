@@ -4,7 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import React from "react";
 import Link from "next/link";
-import { Home, Settings, Users, FileText, Menu } from "lucide-react";
+import { Home, Settings, Users, FileText, Menu, Building } from "lucide-react";
 import { buttonVariants, Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -34,6 +34,15 @@ function Sidebar() {
           )}
         >
           <FileText className="mr-2 h-4 w-4" /> Briefs
+        </Link>
+        <Link
+          href="/brands"
+          className={cn(
+            buttonVariants({ variant: "ghost" }),
+            "justify-start text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Building className="mr-2 h-4 w-4" /> Brands
         </Link>
         <Link
           href="/actors"

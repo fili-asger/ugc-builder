@@ -56,6 +56,9 @@ export default function BriefsListPage() {
     <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6">
       <div className="flex items-center">
         <h1 className="font-semibold text-lg md:text-2xl">Briefs</h1>
+        <Link href="/briefs/create" className="ml-auto">
+          <Button size="sm">Create Brief</Button>
+        </Link>
       </div>
       <div className="border shadow-sm rounded-lg">
         <Table>
