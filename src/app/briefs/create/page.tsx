@@ -69,6 +69,8 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { AssetSelectionModal } from "@/components/asset-selection-modal";
+import { type AssetSelectItem } from "@/app/api/assets/route";
 
 // Removed tempId
 interface SceneData {
@@ -180,6 +182,12 @@ export default function CreateBriefPage() {
     useState<File | null>(null);
   const [createActorHeadshotPreview, setCreateActorHeadshotPreview] = useState<
     string | null
+  >(null);
+
+  // --- State for Asset Selection Modal ---
+  const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
+  const [selectedSceneIndexForAsset, setSelectedSceneIndexForAsset] = useState<
+    number | null
   >(null);
 
   // Fetch Brands and Actors
@@ -699,6 +707,33 @@ export default function CreateBriefPage() {
       }
     }
   }, [chatMessages]); // Run whenever messages change
+
+  // --- Asset Selection Handler ---
+  const handleOpenAssetSelector = (sceneIndex: number) => {
+    setSelectedSceneIndexForAsset(sceneIndex);
+    setIsAssetModalOpen(true);
+  };
+
+  const handleAssetSelected = (asset: AssetSelectItem) => {
+    if (selectedSceneIndexForAsset === null) return;
+
+    setScenes((currentScenes) =>
+      currentScenes.map((scene, index) => {
+        if (index === selectedSceneIndexForAsset) {
+          return {
+            ...scene,
+            mediaAssetId: asset.id,
+            mediaAssetUrl: asset.url,
+            isGeneratingAsset: false, // Ensure loading state is off
+          };
+        }
+        return scene;
+      })
+    );
+
+    setSelectedSceneIndexForAsset(null); // Reset index
+    // Modal will close itself via its onOpenChange
+  };
 
   // --- Asset Generation Handler ---
   const handleGenerateAsset = async (sceneIndex: number) => {
@@ -1278,8 +1313,8 @@ Mandatories: Show product packaging clearly."
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled // Disabled for now
-                              // onClick={() => handleSelectAsset(index)} // TODO: Implement asset selection modal
+                              disabled={scene.isGeneratingAsset}
+                              onClick={() => handleOpenAssetSelector(index)}
                             >
                               Select Existing
                             </Button>
@@ -1737,6 +1772,13 @@ Mandatories: Show product packaging clearly."
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Render the Asset Selection Modal */}
+      <AssetSelectionModal
+        isOpen={isAssetModalOpen}
+        onOpenChange={setIsAssetModalOpen}
+        onSelectAsset={handleAssetSelected}
+      />
     </main>
   );
 }

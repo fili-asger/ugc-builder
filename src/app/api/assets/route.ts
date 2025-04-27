@@ -9,6 +9,7 @@ export interface AssetSelectItem {
   filename: string;
   // Add mimeType if needed for filtering/display
   mimeType: string;
+  url: string; // Added storageKey as url
 }
 
 export async function GET(request: Request) {
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
         id: asset.id,
         filename: asset.filename,
         mimeType: asset.mimeType,
+        url: asset.storageKey, // Select storageKey as url
       })
       .from(asset)
       .orderBy(desc(asset.uploadedAt)); // Order by upload date, newest first
